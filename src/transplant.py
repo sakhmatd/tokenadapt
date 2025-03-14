@@ -1,0 +1,163 @@
+# coding: utf-8
+# Copyright IsNoobGrammer and aloobun, 2025
+#
+# This script is part of the Tokenizer Transplantation Tool.
+# It orchestrates the transplantation process, determining whether embeddings are tied or untied,
+# and calls the appropriate transplantation function from tied.py or untied.py.
+# It also handles caching of embeddings for full tokens and subtokens using cache.py.
+
+import argparse
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModel
+from tqdm.auto import tqdm
+from tied import transplant_tied_embeddings
+from untied import transplant_untied_embeddings
+from cache import load_cache, save_cache, cache_embeddings
+
+def main(args):
+    """Main function to execute the tokenizer transplantation process."""
+    # --------------- Setup ------------------
+    dtype_map = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}
+    dtype = dtype_map[args.dtype]
+    print(f"Data type selected: {args.dtype}")
+
+    
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Embedding device: {device}")
+
+    # --------------- Loading Models and Tokenizers ---------------
+    
+    print("Loading pre-trained model on CPU...")
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model_path, torch_dtype=dtype, device_map="cpu", token=args.hf_token
+    )
+    
+    old_generation_config = model.generation_config
+
+    print("Loading tokenizers...")
+    old_tokenizer = AutoTokenizer.from_pretrained(args.model_path, token=args.hf_token)
+    new_tokenizer = AutoTokenizer.from_pretrained(args.new_tokenizer_path, token=args.hf_token)
+
+    
+    print("Loading embedding model...")
+    embed_model = AutoModel.from_pretrained(args.embedding_model_path, trust_remote_code=True).to(device)
+    embed_tokenizer = AutoTokenizer.from_pretrained(args.embedding_model_path, trust_remote_code=True)
+
+    # --------------- Transplant Start Phase 1 -------------------------
+
+    old_vocab = old_tokenizer.get_vocab()
+    new_vocab = new_tokenizer.get_vocab()
+    shared_vocab = list(set(new_vocab.keys()) & set(old_vocab.keys()))
+    unique_tokens = set(new_vocab.keys()) - set(shared_vocab)
+    print(f"Shared tokens: {len(shared_vocab)}")
+    print(f"Unique tokens to initialize: {len(unique_tokens)}")
+
+    
+    embed_model_name = args.embedding_model_path.split("/")[-1]
+    cache_file = f"cache_{embed_model_name}.json"
+
+    
+    cache = load_cache(cache_file)
+
+    
+    full_tokens = [new_tokenizer.decode([new_vocab[token_str]]) for token_str in unique_tokens]
+    cache = cache_embeddings(embed_model, embed_tokenizer, full_tokens, device, cache)
+
+    
+    subtokens = []
+    for token_str in unique_tokens:
+        full_token = new_tokenizer.decode([new_vocab[token_str]])
+        old_ids = old_tokenizer.encode(full_token, add_special_tokens=False)
+        subtokens.extend(old_tokenizer.decode([oid]) for oid in old_ids)
+    subtokens = list(set(subtokens))  
+    cache = cache_embeddings(embed_model, embed_tokenizer, subtokens, device, cache)
+
+    
+    save_cache(cache_file, cache)
+
+    
+    tied = getattr(model.config, "tie_word_embeddings", False)
+    if not tied:
+        input_embeds = model.get_input_embeddings().weight
+        output_embeds = model.get_output_embeddings()
+        tied = output_embeds is None or input_embeds is output_embeds.weight
+    print(f"Tied embeddings detected: {tied}")
+
+    # --------------- Transplant Phase 2 -------------------------
+
+    if tied:
+        transplant_tied_embeddings(
+            model, new_tokenizer, shared_vocab, unique_tokens, cache, cache,
+            old_vocab, new_vocab, old_tokenizer, dtype
+        )
+    else:
+        transplant_untied_embeddings(
+            model, new_tokenizer, shared_vocab, unique_tokens, cache, cache,
+            old_vocab, new_vocab, old_tokenizer, dtype
+        )
+
+    # ------------- Clean-Up -----------------------
+    try:
+        if "eos_token_id" in new_tokenizer:
+            eos_id=new_tokenizer.eos_token_id
+        else: 
+            eos_id=new_tokenizer.bos_token_id if "bos_token_id" in new_tokenizer else None
+        
+        if "bos_token_id" in new_tokenizer:
+            bos_id=new_tokenizer.bos_token_id
+        else: 
+            eos_id=new_tokenizer.eos_token_id if "eos_token_id" in new_tokenizer else None
+
+
+        if  "pad_token_id" in new_tokenizer:
+            pad_id=new_tokenizer.pad_token_id
+        else:
+            pad_id=new_tokenizer.eos_token_id if "eos_token_id" in new_tokenizer else None
+        
+        
+        
+        model.config.pad_token_id = pad_id if pad_id else None
+        model.config.eos_token_id = eos_id if eos_id else None
+        model.config.bos_token_id = bos_id if bos_id else None
+
+        model.generation_config = old_generation_config
+        model.generation_config.pad_token_id = pad_id if pad_id else None
+        model.generation_config.eos_token_id = eos_id if eos_id else None
+        model.generation_config.bos_token_id = bos_id if bos_id else None
+
+    except Exception as e: ## TODO (aloobun): we can make it better
+        print(f"Unable to process clean-up like special token map and generation config map due to {e}") 
+
+    
+    print(f"Saving to Hugging Face as {args.new_model_name}...")
+    model.push_to_hub(args.new_model_name, private=False, token=args.hf_token)
+    new_tokenizer.push_to_hub(args.new_model_name, private=False, token=args.hf_token)
+    print("Transplantation completed!")
+
+#  ------------- End ------------------ 
+
+if __name__ == "__main__":
+    
+    parser = argparse.ArgumentParser(description="Tokenizer Transplantation ")
+    parser.add_argument(
+        "-model", "--model_path", required=True, help="Path to the original model"
+    )
+    parser.add_argument(
+        "-tk", "--new_tokenizer_path", required=True, help="Path to the new tokenizer"
+    )
+    parser.add_argument(
+        "-embed", "--embedding_model_path", default="nomic-ai/nomic-embed-text-v2-moe",
+        help="Path to embedding model"
+    )
+    parser.add_argument(
+        "-repo", "--new_model_name", required=True, help="HF's Repo name for the new model"
+    )
+    parser.add_argument(
+        "-auth", "--hf_token", required=True, help="Hugging Face authentication token"
+    )
+    parser.add_argument(
+        "-d", "--dtype", default="bf16", choices=["bf16", "fp16", "fp32"],
+        help="Model and Processing data type"
+    )
+    args = parser.parse_args()
+    main(args)
