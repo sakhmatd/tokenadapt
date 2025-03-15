@@ -98,35 +98,15 @@ def main(args):
 
     # ------------- Clean-Up -----------------------
     try:
-        if "eos_token_id" in new_tokenizer:
-            eos_id=new_tokenizer.eos_token_id
-        else: 
-            eos_id=new_tokenizer.bos_token_id if "bos_token_id" in new_tokenizer else None
-        
-        if "bos_token_id" in new_tokenizer:
-            bos_id=new_tokenizer.bos_token_id
-        else: 
-            eos_id=new_tokenizer.eos_token_id if "eos_token_id" in new_tokenizer else None
-
-
-        if  "pad_token_id" in new_tokenizer:
-            pad_id=new_tokenizer.pad_token_id
-        else:
-            pad_id=new_tokenizer.eos_token_id if "eos_token_id" in new_tokenizer else None
-        
-        
-        
-        model.config.pad_token_id = pad_id if pad_id else None
-        model.config.eos_token_id = eos_id if eos_id else None
-        model.config.bos_token_id = bos_id if bos_id else None
-
+        eos_id = getattr(new_tokenizer, "eos_token_id", getattr(new_tokenizer, "bos_token_id", None))
+        bos_id = getattr(new_tokenizer, "bos_token_id", getattr(new_tokenizer, "eos_token_id", None))
+        pad_id = getattr(new_tokenizer, "pad_token_id", getattr(new_tokenizer, "eos_token_id", None))
+        model.config.update({"pad_token_id": pad_id, "eos_token_id": eos_id, "bos_token_id": bos_id})
         model.generation_config = old_generation_config
-        model.generation_config.pad_token_id = pad_id if pad_id else None
-        model.generation_config.eos_token_id = eos_id if eos_id else None
-        model.generation_config.bos_token_id = bos_id if bos_id else None
-
-    except Exception as e: ## TODO (aloobun): we can make it better
-        print(f"Unable to process clean-up like special token map and generation config map due to {e}") 
+        model.generation_config.update({"pad_token_id": pad_id, "eos_token_id": eos_id, "bos_token_id": bos_id})
+        new_tokenizer.chat_template=old_tokenizer.chat_template
+    except Exception as e:
+        print(f"Config update failed: {e}")
 
     
     print(f"Saving to Hugging Face as {args.new_model_name}...")

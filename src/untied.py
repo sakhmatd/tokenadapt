@@ -58,11 +58,11 @@ def transplant_untied_embeddings(model, new_tokenizer: AutoTokenizer, shared_voc
             full_token = new_tokenizer.decode([new_id])
             if full_token not in full_token_embeds:
                 continue
-            full_embed = full_token_embeds[full_token]
+            full_embed = torch.tensor(full_token_embeds[full_token] , dtype=torch.bf16)
             old_ids = old_tokenizer.encode(full_token, add_special_tokens=False)
             if not old_ids:
                 continue
-            sub_embeds = [subtoken_embeds[old_tokenizer.decode([oid])] 
+            sub_embeds = [torch.tensor(subtoken_embeds[old_tokenizer.decode([oid])] , dtype=torch.bf16)
                           for oid in old_ids if old_tokenizer.decode([oid]) in subtoken_embeds]
             if not sub_embeds:
                 continue
