@@ -88,12 +88,12 @@ def main(args):
     if tied:
         transplant_tied_embeddings(
             model, new_tokenizer, shared_vocab, unique_tokens, cache, cache,
-            old_vocab, new_vocab, old_tokenizer, dtype
+            old_vocab, new_vocab, old_tokenizer, dtype ,args.temperature, args.multiple_of
         )
     else:
         transplant_untied_embeddings(
             model, new_tokenizer, shared_vocab, unique_tokens, cache, cache,
-            old_vocab, new_vocab, old_tokenizer, dtype
+            old_vocab, new_vocab, old_tokenizer, dtype,args.temperature , args.multiple_of
         )
 
     # ------------- Clean-Up -----------------------
@@ -117,6 +117,12 @@ def main(args):
 #  ------------- End ------------------ 
 
 if __name__ == "__main__":
+    class Range(object):
+        def __init__(self, start, end):
+            self.start = start
+            self.end = end
+        def __eq__(self, other):
+            return self.start <= other <= self.end
     
     parser = argparse.ArgumentParser(description="Tokenizer Transplantation ")
     parser.add_argument(
@@ -127,7 +133,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-embed", "--embedding_model_path", default="nomic-ai/nomic-embed-text-v2-moe",
-        help="Path to embedding model"
+        help="Path to embedding model; defaults to nomic-ai/nomic-embed-text-v2-moe"
     )
     parser.add_argument(
         "-repo", "--new_model_name", required=True, help="HF's Repo name for the new model"
@@ -136,8 +142,18 @@ if __name__ == "__main__":
         "-auth", "--hf_token", required=True, help="Hugging Face authentication token"
     )
     parser.add_argument(
-        "-d", "--dtype", default="bf16", choices=["bf16", "fp16", "fp32"],
-        help="Model and Processing data type"
+        "-temp", "--temperature", default=0.3, 
+        help="Temprature for more expresive weighting 0.3 is default more than this is more bland ; less than this is more expressive", 
+        type=float,choices=[Range(0.0, 1.0)]
+    )
+    parser.add_argument(
+        "-pad","--multiple_of" , default = 128,
+        help="When Resizing model ; will resize to a multiple of earlier papers proved padding to power of 2 helps in throughput; default is 128",
+        type=int
+    )
+    parser.add_argument(
+        "-d", "--dtype", default="fp32", choices=["bf16", "fp16", "fp32"],
+        help="Model and Processing data type, default : fp32"
     )
     args = parser.parse_args()
     main(args)

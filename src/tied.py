@@ -12,7 +12,7 @@ from tqdm.auto import tqdm
 
 def transplant_tied_embeddings(model, new_tokenizer: AutoTokenizer, shared_vocab: list, unique_tokens: set, 
                               full_token_embeds: dict, subtoken_embeds: dict, old_vocab: dict, 
-                              new_vocab: dict, old_tokenizer: AutoTokenizer, data_type: torch.dtype) -> None:
+                              new_vocab: dict, old_tokenizer: AutoTokenizer, data_type: torch.dtype,temperature: float,pad_to_multiple_of: int) -> None:
     """Transplants embeddings for a model with tied input/output embeddings.
     For Tied word embeddings, the input and output embeddings are the same matrix.
 
@@ -27,7 +27,11 @@ def transplant_tied_embeddings(model, new_tokenizer: AutoTokenizer, shared_vocab
         new_vocab: New vocabulary mapping (token -> ID).
         old_tokenizer: Original tokenizer. (AutoTokenizer)
         data_type: Torch data type for embeddings (e.g., torch.bfloat16).
+        temperature: Temperature for expressive weighting when using softmax for heuristic. (float)
+        pad_to_multiple_of: Pad the embedding matrix to a multiple of this value.
     """
+    eps = 1e-5 
+    temperature += eps 
     with torch.no_grad():
         
         embed_dim = model.get_input_embeddings().weight.shape[1]
@@ -58,6 +62,9 @@ def transplant_tied_embeddings(model, new_tokenizer: AutoTokenizer, shared_vocab
             sub_embeds = torch.stack(sub_embeds)
             similarities = F.cosine_similarity(full_embed.unsqueeze(0), sub_embeds, dim=1)
             weights = F.softmax(similarities, dim=0)
+            len_norm=torch.tensor([len(old_tokenizer.decode(z))/len(full_token) for z in old_ids],dtype=data_type)
+            weights.add_(len_norm).div_(2).div_(temperature)
+            weights = F.softmax(weights,dim=0,dtype=data_type)
             old_embeds = torch.stack([model.get_input_embeddings().weight[oid] for oid in old_ids])
             new_embeddings[new_id] = (weights.unsqueeze(1) * old_embeds).sum(dim=0)
             success_count += 1
@@ -68,7 +75,7 @@ def transplant_tied_embeddings(model, new_tokenizer: AutoTokenizer, shared_vocab
         
         for param in model.parameters():
             param.requires_grad = False
-        model.resize_token_embeddings(len(new_tokenizer))
+        model.resize_token_embeddings(len(new_tokenizer),pad_to_multiple_of=pad_to_multiple_of)
         model.get_input_embeddings().weight.copy_(new_embeddings)
         if model.get_output_embeddings() is not None:
             model.get_output_embeddings().weight.copy_(new_embeddings)
