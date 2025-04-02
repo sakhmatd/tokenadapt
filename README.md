@@ -8,7 +8,7 @@ To get started, clone the repository and install the required dependencies:
 
 ```bash
 # Clone the repository
-git clone https://github.com/aloobun/tokenadapt.git
+https://github.com/Tinycompany-AI/tokenadapt.git
 cd tokenadapt
 
 # Create and activate a virtual environment (recommended)
