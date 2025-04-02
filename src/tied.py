@@ -9,6 +9,7 @@ import torch
 from transformers import AutoTokenizer
 import torch.nn.functional as F
 from tqdm.auto import tqdm
+import math
 
 def transplant_tied_embeddings(model, new_tokenizer: AutoTokenizer, shared_vocab: list, unique_tokens: set, 
                               full_token_embeds: dict, subtoken_embeds: dict, old_vocab: dict, 
@@ -35,7 +36,8 @@ def transplant_tied_embeddings(model, new_tokenizer: AutoTokenizer, shared_vocab
     with torch.no_grad():
         
         embed_dim = model.get_input_embeddings().weight.shape[1]
-        new_embeddings = torch.rand(len(new_tokenizer), embed_dim, dtype=data_type, device="cpu")
+        pad_tk = math.ceil(len(new_tokenizer) / pad_to_multiple_of) * pad_to_multiple_of
+        new_embeddings = torch.rand(pad_tk, embed_dim, dtype=data_type, device="cpu")
         new_embeddings.normal_(
             mean=model.get_input_embeddings().weight.mean().item(),
             std=model.get_input_embeddings().weight.std().item()
@@ -53,9 +55,9 @@ def transplant_tied_embeddings(model, new_tokenizer: AutoTokenizer, shared_vocab
             full_token = new_tokenizer.decode([new_id])
             if full_token not in full_token_embeds:
                 continue
-            full_embed = torch.tensor(full_token_embeds[full_token],dtype=torch.bf16)
+            full_embed = torch.tensor(full_token_embeds[full_token],dtype=data_type)
             old_ids = old_tokenizer.encode(full_token, add_special_tokens=False)
-            sub_embeds = [torch.tensor(subtoken_embeds[old_tokenizer.decode([oid])],dtype=torch.bf16)
+            sub_embeds = [torch.tensor(subtoken_embeds[old_tokenizer.decode([oid])],dtype=data_type)
                           for oid in old_ids if old_tokenizer.decode([oid]) in subtoken_embeds]
             if not sub_embeds:
                 continue
