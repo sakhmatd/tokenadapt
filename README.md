@@ -62,6 +62,8 @@ python src/transplant.py \
 
 - `--embedding_model_path` (default: "nomic-ai/nomic-embed-text-v2-moe"): Model used for embedding generation.
 
+- `--batch_size` (default: 16): Number of samples to process in parallel.
+
 ## Example Usage
 
 ### Basic Usage
@@ -85,7 +87,8 @@ python src/transplant.py \
     --temperature 0.24 \
     --multiple_of 256 \
     --dtype "bf16" \
-    --embedding_model_path "BAAI/bge-m3"
+    --embedding_model_path "BAAI/bge-m3" \
+    --batch_size 32
 ```
 
 ## License
@@ -97,3 +100,7 @@ This project is licensed under the Apache 2.0 License.
 A detailed paper on the it will be available soon. You can find a summary on arXiv [here](https://arxiv.org/abs/XXXX.XXXX).
 
 Copyright © 2025 IsNoobGrammer and aloobun
+
+### Acknowledgements
+
+We would like to thank Tensoic and Google for providing compute resources for this project.

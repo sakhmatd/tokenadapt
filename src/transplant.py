@@ -61,7 +61,7 @@ def main(args):
 
     
     full_tokens = [new_tokenizer.decode([new_vocab[token_str]]) for token_str in unique_tokens]
-    cache = cache_embeddings(embed_model, embed_tokenizer, full_tokens, device, cache)
+    cache = cache_embeddings(embed_model, embed_tokenizer, full_tokens, device, cache, batch_size=args.batch_size)
 
     
     subtokens = []
@@ -155,5 +155,17 @@ if __name__ == "__main__":
         "-d", "--dtype", default="fp32", choices=["bf16", "fp16", "fp32"],
         help="Model and Processing data type, default : fp32"
     )
+    parser.add_argument(
+        "-bs", "--batch_size", default=16, type=int,
+        help="Batch size for embedding extraction, default: 16"
+    )
+    parser.add_argument(
+        "-k","--top_k", default=2, type=int,
+        help="Top K for global heuristic, default: 2"
+    )
+    parser.add_argument(
+        "-w", "--weight", default=0.3, type=float,
+        help="Weight for global heuristic ; default: 0.3; local heuristic is 1 - global heuristic"
+    ) 
     args = parser.parse_args()
     main(args)
