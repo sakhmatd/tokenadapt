@@ -1,6 +1,7 @@
 # TokenAdapt
 
-TokenAdapt is a Tokenizer Transplantation Tool that allows users to seamlessly transplant tokenizers between language models while preserving semantic meaning. This tool is designed for users who want to adapt models for specific tasks or datasets without losing the integrity of the original embeddings.
+
+TokenAdapt is a Tokenizer Transplantation Tool that allows users to seamlessly transplant tokenizers between language models while preserving semantic meaning. This tool is designed for users who want to adapt models for specific tasks or datasets without losing the integrity of the original embeddings, using intelligent 0-shot initialization heuristics.
 
 ## Installation
 
@@ -15,18 +16,24 @@ cd tokenadapt
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies
-pip install torch transformers tqdm
+# Install dependencies (CPU-based FAISS)
+pip install torch transformers tqdm numpy faiss-cpu>=1.7.0
+# Or install GPU-based FAISS if you have CUDA configured:
+# pip install torch transformers tqdm numpy faiss-gpu>=1.7.0
+
+# Alternatively, use the requirements file:
+# pip install -r requirements.txt
 ```
+*(See `requirements.txt` for specific versions)*
 
 ## Key Features
 
 - 🔄 **Seamless Tokenizer Transplantation**: Easily transfer tokenizers between models.
-- 🧠 **Intelligent Embedding Initialization**: Seemless experirence due to 0-shot intialization based on strong heuristics.
-- 🔗 **Support for Tied and Untied Embeddings**: Flexibility in handling different embedding configurations.
-- 🚀 **Efficient Caching System**: Reduces computation time by caching embeddings.
-- 🎯 **Configurable Temperature**: Adjusts the expressiveness of the heuristics for embedding initialization.
-- 🕒 **Fast and Efficient**: Optimized for speed and accuracy.
+- 🧠 **Intelligent Embedding Initialization**: Effective 0-shot initialization using a hybrid heuristic approach (local subword composition + global K-NN similarity).
+- 🔗 **Support for Tied and Untied Embeddings**: Flexibility in handling different model architectures.
+- 🚀 **Efficient Caching & Indexing**: Reduces computation time by caching external embeddings and using FAISS for efficient similarity search.
+- 🎯 **Configurable Heuristics**: Adjust temperature and heuristic weighting.
+- 🕒 **Optimized for Speed**: Batched embedding extraction and efficient indexing.
 
 ## Quick Start
 
@@ -42,27 +49,20 @@ python src/transplant.py \
 
 ### Required Arguments
 
-- `--model_path`: Path to the original model (Hugging Face model ID or local path).
-- `--new_tokenizer_path`: Path to the new tokenizer (Hugging Face model ID or local path).
-- `--new_model_name`: Name for the output model on Hugging Face Hub.
-- `--hf_token`: Your Hugging Face authentication token.
+-   `--model_path`: Path or Hub ID of the original model.
+-   `--new_tokenizer_path`: Path or Hub ID of the new tokenizer.
+-   `--new_model_name`: HF Hub repository name for the output model (e.g., `your-username/your-model-name`).
+-   `--hf_token`: Your Hugging Face authentication token (write permission needed).
 
-### Optional Arguments
+### Optional Arguments & Heuristic Control
 
-- `--temperature` (default: 0.3): Controls the expressiveness of the heuristic for embedding initialization.
-  - Lower values (< 0.3) yield more expressive weights.
-  - Higher values (> 0.3) produce more bland weights.
-  - Range: 0.0 to 1.0.
-
-- `--multiple_of` (default: 128): Size to pad the embedding matrix to, improving throughput when set to powers of 2.
-
-- `--dtype` (default: "fp32"): Processing data type.
-  - Options: "bf16", "fp16", "fp32".
-  - Affects memory usage and computation speed.
-
-- `--embedding_model_path` (default: "nomic-ai/nomic-embed-text-v2-moe"): Model used for embedding generation.
-
-- `--batch_size` (default: 16): Number of samples to process in parallel.
+-   `--embedding_model_path` (default: `nomic-ai/nomic-embed-text-v1.5`): External model used to generate embeddings for heuristic calculations (both local and global).
+-   `--temperature` (default: 0.1): Controls the sharpness of the softmax weighting in heuristics (0.01-1.0). Lower values yield more distinct weights, higher values produce flatter weights.
+-   `--top_k` (default: 2): Number of nearest neighbors (K) to consider for the global K-NN heuristic.
+-   `--weight` (default: 0.3): Weight assigned to the global K-NN heuristic result (0.0-1.0). The local subword heuristic receives a weight of `(1 - weight)`. A weight of 0.0 disables K-NN, 1.0 disables the subword heuristic.
+-   `--batch_size` (default: 16): Batch size for extracting embeddings with the external model.
+-   `--multiple_of` (default: 128): Pad vocabulary size to a multiple of this value for potential throughput improvement.
+-   `--dtype` (default: "fp32"): Data type for model loading and processing (`bf16`, `fp16`, `fp32`). Affects memory usage and computation speed.
 
 ## Example Usage
 
@@ -76,7 +76,7 @@ python src/transplant.py \
     --hf_token "hf_..."
 ```
 
-### Advanced Usage with Custom Settings
+### Advanced Usage with Custom Heuristic Settings
 
 ```bash
 python src/transplant.py \
@@ -84,23 +84,23 @@ python src/transplant.py \
     --new_tokenizer_path "tinycompany/Adi-Bun-128K" \
     --new_model_name "tinycompany/Qwentify" \
     --hf_token "hf_..." \
-    --temperature 0.24 \
-    --multiple_of 256 \
-    --dtype "bf16" \
     --embedding_model_path "BAAI/bge-m3" \
-    --batch_size 32
+    --temperature 0.24 \
+    --top_k 2 \
+    --weight 0.3 \
+    --batch_size 16 \
+    --multiple_of 128 \
+    --dtype "bf16"
 ```
 
 ## License
 
 This project is licensed under the Apache 2.0 License.
 
-
-
-A detailed paper on the it will be available soon. You can find a summary on arXiv [here](https://arxiv.org/abs/XXXX.XXXX).
+A detailed paper on the method will be available soon. You can find a summary on arXiv [here](https://arxiv.org/abs/XXXX.XXXX).
 
 Copyright © 2025 IsNoobGrammer and aloobun
 
 ### Acknowledgements
 
-We would like to thank Tensoic and Google for providing compute resources for this project.
+We would like to thank [Tensoic](https://github.com/tensoic/) and [Google](https://github.com/AI-Hypercomputer) for providing compute resources for this project.

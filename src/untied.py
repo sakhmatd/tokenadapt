@@ -4,91 +4,176 @@
 #
 # This script is part of the Tokenizer Transplantation Tool.
 
-
 import torch
 from transformers import AutoTokenizer
-import torch.nn.functional as F
 from tqdm.auto import tqdm
 import math
+from heuristics import calculate_local_embedding, calculate_global_embedding
+import faiss 
+from typing import Optional 
 
-def transplant_untied_embeddings(model, new_tokenizer: AutoTokenizer, shared_vocab: list, unique_tokens: set, 
-                                full_token_embeds: dict, subtoken_embeds: dict, old_vocab: dict, 
-                                new_vocab: dict, old_tokenizer: AutoTokenizer, data_type: torch.dtype,temperature: float,pad_to_multiple_of: int) -> None:
-    """Transplants embeddings for a model with separate input/output embeddings.
-
-    Since the model is untied, we need to update both the input and output embeddings separately.
-
-    Args:
-        model: Model to be updated with new embeddings. (AutoModelForCausalLM)
-        new_tokenizer: Tokenizer with the new vocabulary. (AutoTokenizer) 
-        shared_vocab: Tokens common to old and new vocabularies. (list)
-        unique_tokens: Tokens unique to the new vocabulary. (list)
-        full_token_embeds: Cached embeddings for new full tokens. (dict of str -> torch.Tensor)
-        subtoken_embeds: Cached embeddings for subtokens. (dict of str -> torch.Tensor)
-        old_vocab: Original vocabulary mapping (token -> ID).
-        new_vocab: New vocabulary mapping (token -> ID).
-        old_tokenizer: Original tokenizer. (AutoTokenizer)
-        data_type: Torch data type for embeddings (e.g., torch.bfloat16).
-        temperature: Temperature for expressive weighting when using softmax for heuristic. (float)
-        pad_to_multiple_of: Pad the embedding matrix to a multiple of this value.
+def transplant_untied_embeddings(
+    model, new_tokenizer: AutoTokenizer, shared_vocab: list, unique_tokens: set,
+    full_token_embeds_cache: dict, subtoken_embeds_cache: dict, old_vocab: dict,
+    new_vocab: dict, old_tokenizer: AutoTokenizer, data_type: torch.dtype,
+    temperature: float, pad_to_multiple_of: int,
+    faiss_index: Optional[faiss.Index], index_to_token: Optional[dict], k: int, global_weight: float
+    ) -> None:
     """
-    eps = 1e-5 
-    temperature += eps 
+    Transplants embeddings for a model with untied input/output embeddings.
+    Uses heuristic helpers, calculating weights once and applying to both layers.
+    """
+
+    eps = 1e-5
+    calc_temperature = temperature + eps
+
+    try:
+        calc_device = model.device if model.device.type != 'meta' else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    except AttributeError:
+        calc_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device for heuristic calculations: {calc_device}")
+
+    output_layer = model.get_output_embeddings()
+    if output_layer is None:
+        print("Error: Cannot perform untied transplantation because model.get_output_embeddings() is None.")
+        return
+
     with torch.no_grad():
-        embed_dim = model.get_input_embeddings().weight.shape[1]
+        original_input_embeddings = model.get_input_embeddings().weight.clone()
+        original_output_embeddings = output_layer.weight.clone() 
+        embed_dim = original_input_embeddings.shape[1]
 
-        pad_tk = math.ceil(len(new_tokenizer) / pad_to_multiple_of) * pad_to_multiple_of
-        new_input_embeds = torch.rand(pad_tk, embed_dim, dtype=data_type, device="cpu")
-        new_input_embeds.normal_(
-            mean=model.get_input_embeddings().weight.mean().item(),
-            std=model.get_input_embeddings().weight.std().item()
-        )
-        new_output_embeds = torch.rand(pad_tk, embed_dim, dtype=data_type, device="cpu")
-        new_output_embeds.normal_(
-            mean=model.get_output_embeddings().weight.mean().item(),
-            std=model.get_output_embeddings().weight.std().item()
-        )
+        new_vocab_size = len(new_tokenizer)
+        padded_size = math.ceil(new_vocab_size / pad_to_multiple_of) * pad_to_multiple_of
+        new_input_embeds = torch.empty(padded_size, embed_dim, dtype=data_type, device='cpu')
+        new_output_embeds = torch.empty(padded_size, embed_dim, dtype=data_type, device='cpu')
+
+        in_mean, in_std = original_input_embeddings.mean().item(), original_input_embeddings.std().item()
+        out_mean, out_std = original_output_embeddings.mean().item(), original_output_embeddings.std().item()
+        new_input_embeds.normal_(mean=in_mean, std=in_std)
+        new_output_embeds.normal_(mean=out_mean, std=out_std)
+        print(f"Initialized new input/output embedding matrices with size {padded_size}x{embed_dim}")
+
+
+        copied_in_count, copied_out_count = 0, 0
+        for token in tqdm(shared_vocab, desc="Copying shared token embeddings (Untied)"):
+            old_id = old_vocab.get(token)
+            new_id = new_vocab.get(token)
+            if old_id is not None and new_id is not None:
+                if 0 <= old_id < original_input_embeddings.shape[0]:
+                     new_input_embeds[new_id] = original_input_embeddings[old_id].to(device='cpu', dtype=data_type)
+                     copied_in_count += 1
+                if 0 <= old_id < original_output_embeddings.shape[0]:
+                     new_output_embeds[new_id] = original_output_embeddings[old_id].to(device='cpu', dtype=data_type)
+                     copied_out_count += 1
+        print(f"Copied {copied_in_count}/{len(shared_vocab)} shared input embeddings.")
+        print(f"Copied {copied_out_count}/{len(shared_vocab)} shared output embeddings.")
+
+
+        local_success_in, local_success_out = 0, 0
+        global_success_in, global_success_out = 0, 0
+        combined_success_in, combined_success_out = 0, 0
+        random_init_count_in, random_init_count_out = 0, 0
+
+        local_weight = 1.0 - global_weight
+        use_global = global_weight > 0 and faiss_index is not None
+        use_local = local_weight > 0
+
+        print(f"Initializing unique tokens (Untied). Global heuristic enabled: {use_global} (weight={global_weight:.2f}), Local heuristic enabled: {use_local} (weight={local_weight:.2f})")
+
+        for token_str in tqdm(unique_tokens, desc="Initializing unique tokens (Untied Hybrid)"):
+            new_id = new_vocab.get(token_str)
+            if new_id is None: continue
+
+            e_local_in, e_local_out = None, None
+            e_global_in, e_global_out = None, None
+
+            
+            if use_local:
+                
+                e_local_in, e_local_out = calculate_local_embedding(
+                    token_str, new_id, new_tokenizer, old_tokenizer,
+                    full_token_embeds_cache, subtoken_embeds_cache,
+                    original_input_embeddings, original_output_embeddings, 
+                    calc_temperature, data_type, calc_device
+                )
+                if e_local_in is not None: local_success_in += 1
+                if e_local_out is not None: local_success_out += 1 
+
+            
+            if use_global:
+                full_token_decoded = new_tokenizer.decode([new_id])
+                e_global_in, e_global_out = calculate_global_embedding(
+                    full_token_decoded, full_token_embeds_cache, faiss_index,
+                    index_to_token, old_vocab,
+                    original_input_embeddings, original_output_embeddings,
+                    k, calc_temperature, data_type, calc_device
+                )
+                if e_global_in is not None: global_success_in += 1
+                if e_global_out is not None: global_success_out += 1 
+
+            
+            final_embedding_in = None
+            if e_local_in is not None and e_global_in is not None:
+                final_embedding_in = (local_weight * e_local_in + global_weight * e_global_in).to(dtype=data_type)
+                combined_success_in += 1
+            elif e_local_in is not None: final_embedding_in = e_local_in.to(dtype=data_type)
+            elif e_global_in is not None: final_embedding_in = e_global_in.to(dtype=data_type)
+
+            if final_embedding_in is not None:
+                new_input_embeds[new_id] = final_embedding_in.cpu()
+            else:
+                random_init_count_in += 1
+
+            
+            final_embedding_out = None
+            if e_local_out is not None and e_global_out is not None:
+                final_embedding_out = (local_weight * e_local_out + global_weight * e_global_out).to(dtype=data_type)
+                combined_success_out += 1
+            elif e_local_out is not None: final_embedding_out = e_local_out.to(dtype=data_type)
+            elif e_global_out is not None: final_embedding_out = e_global_out.to(dtype=data_type)
+
+            if final_embedding_out is not None:
+                new_output_embeds[new_id] = final_embedding_out.cpu()
+            else:
+                random_init_count_out += 1
+
+
+        print(f"Untied initialization complete for {len(unique_tokens)} unique tokens:")
+        print(f">>>  Input Embeddings:")
+        print(f"    - Local heuristic succeeded for: {local_success_in}")
+        print(f"    - Global heuristic succeeded for: {global_success_in}")
+        print(f"    - Combined successfully (both ran & succeeded): {combined_success_in}")
+        print(f"    - Remained randomly initialized: {random_init_count_in}")
+        print(f">>>  Output Embeddings:")
+        print(f"    - Local heuristic succeeded for: {local_success_out}")
+        print(f"    - Global heuristic succeeded for: {global_success_out}")
+        print(f"    - Combined successfully (both ran & succeeded): {combined_success_out}")
+        print(f"    - Remained randomly initialized: {random_init_count_out}")
+
 
         
-        for token in tqdm(shared_vocab, desc="Copying shared token embeddings"):
-            old_id = old_vocab[token]
-            new_id = new_vocab[token]
-            new_input_embeds[new_id] = model.get_input_embeddings().weight[old_id].clone()
-            new_output_embeds[new_id] = model.get_output_embeddings().weight[old_id].clone()
+        print("Resizing model token embeddings (Untied)...")
+        for param in model.parameters(): param.requires_grad = False
+        model.resize_token_embeddings(new_vocab_size, pad_to_multiple_of=pad_to_multiple_of)
+        print(f"Model embedding size after resize: Input {model.get_input_embeddings().weight.shape}, Output {model.get_output_embeddings().weight.shape}")
 
-        
-        success_count = 0
-        for token_str in tqdm(unique_tokens, desc="Initializing unique tokens"):
-            new_id = new_vocab[token_str]
-            full_token = new_tokenizer.decode([new_id])
-            if full_token not in full_token_embeds:
-                continue
-            full_embed = torch.tensor(full_token_embeds[full_token] , dtype=data_type)
-            old_ids = old_tokenizer.encode(full_token, add_special_tokens=False)
-            if not old_ids:
-                continue
-            sub_embeds = [torch.tensor(subtoken_embeds[old_tokenizer.decode([oid])] , dtype=data_type)
-                          for oid in old_ids if old_tokenizer.decode([oid]) in subtoken_embeds]
-            if not sub_embeds:
-                continue
-            sub_embeds = torch.stack(sub_embeds)
-            similarities = F.cosine_similarity(full_embed.unsqueeze(0), sub_embeds, dim=1)
-            weights = F.softmax(similarities, dim=0)
-            len_norm=torch.tensor([len(old_tokenizer.decode(z))/len(full_token) for z in old_ids],dtype=data_type)
-            weights.add_(len_norm).div_(2).div_(temperature)
-            weights = F.softmax(weights,dim=0,dtype=data_type)
-            old_input_embeds = torch.stack([model.get_input_embeddings().weight[oid] for oid in old_ids])
-            old_output_embeds = torch.stack([model.get_output_embeddings().weight[oid] for oid in old_ids])
-            new_input_embeds[new_id] = (weights.unsqueeze(1) * old_input_embeds).sum(dim=0)
-            new_output_embeds[new_id] = (weights.unsqueeze(1) * old_output_embeds).sum(dim=0)
-            success_count += 1
+        target_device_in = model.get_input_embeddings().weight.device
+        target_device_out = model.get_output_embeddings().weight.device
+        target_dtype_in = model.get_input_embeddings().weight.dtype
+        target_dtype_out = model.get_output_embeddings().weight.dtype
 
-        print(f"Initialized {success_count}/{len(unique_tokens)} new tokens for input/output embeddings. "
-              f"{len(unique_tokens) - success_count} tokens remain randomly initialized.")
+        new_input_tensor = new_input_embeds.to(target_device_in, dtype=target_dtype_in)
+        new_output_tensor = new_output_embeds.to(target_device_out, dtype=target_dtype_out)
 
-        
-        for param in model.parameters():
-            param.requires_grad = False
-        model.resize_token_embeddings(len(new_tokenizer),pad_to_multiple_of=pad_to_multiple_of)
-        model.get_input_embeddings().weight.copy_(new_input_embeds)
-        model.get_output_embeddings().weight.copy_(new_output_embeds)
+        if new_input_tensor.shape == model.get_input_embeddings().weight.shape:
+             model.get_input_embeddings().weight.copy_(new_input_tensor)
+        else:
+             print(f"Error: Shape mismatch for input embeddings. Expected {model.get_input_embeddings().weight.shape}, got {new_input_tensor.shape}.")
+
+        if new_output_tensor.shape == model.get_output_embeddings().weight.shape:
+             model.get_output_embeddings().weight.copy_(new_output_tensor)
+        else:
+             print(f"Error: Shape mismatch for output embeddings. Expected {model.get_output_embeddings().weight.shape}, got {new_output_tensor.shape}.")
+
+        print("Untied embedding update complete.")
