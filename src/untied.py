@@ -104,7 +104,7 @@ def transplant_untied_embeddings(
             if use_global:
                 full_token_decoded = new_tokenizer.decode([new_id])
                 e_global_in, e_global_out = calculate_global_embedding(
-                    full_token_decoded, full_token_embeds_cache, faiss_index,
+                    full_token_decoded, full_token_embeds_cache, faiss_index,old_tokenizer,
                     index_to_token, old_vocab,
                     original_input_embeddings, original_output_embeddings,
                     k, calc_temperature, data_type, calc_device

@@ -113,7 +113,6 @@ def main(args):
         print("Warning: Could not automatically determine embedding dimension from embed_model.config.hidden_size.")
         embed_dim_external = None
 
-
     # --------------- Transplant Start Phase 1 -------------------------
 
     old_vocab = old_tokenizer.get_vocab()
@@ -132,7 +131,7 @@ def main(args):
     cache = load_cache(cache_file)
 
     
-    full_tokens_to_cache = [new_tokenizer.decode([new_vocab[token_str]]) for token_str in unique_tokens]
+    full_tokens_to_cache = [new_tokenizer.decode([new_vocab[token_str]]).lower() for token_str in unique_tokens]
     cache = cache_embeddings(embed_model, embed_tokenizer, full_tokens_to_cache, device, 
                                                     cache, batch_size=args.batch_size)
     
@@ -144,20 +143,22 @@ def main(args):
     
     subtokens_to_cache = set()
     for token_str in tqdm(unique_tokens, desc="Gathering potential subtokens"):
-        full_token_decoded = new_tokenizer.decode([new_vocab[token_str]])
+        full_token_decoded = new_tokenizer.decode([new_vocab[token_str]]).lower()
         old_ids = old_tokenizer.encode(full_token_decoded, add_special_tokens=False)
-        subtokens_to_cache.update(old_tokenizer.decode([oid]) for oid in old_ids)
+        subtokens_to_cache.update(old_tokenizer.decode([oid]).lower() for oid in old_ids)
     cache = cache_embeddings(embed_model, embed_tokenizer, list(subtokens_to_cache), device, 
                                                             cache, batch_size=args.batch_size)
     
     subtoken_embeds_cache = {token: cache[token] for token in subtokens_to_cache if token in cache}
 
-  
-    old_vocab_tokens_to_cache = [token for token in old_vocab_tokens if token not in cache]
+
+    old_vocab_tokens_to_cache = [old_tokenizer.decode([oid]).lower() for oid in old_vocab.values() if old_tokenizer.decode([oid]).lower() not in cache]
     cache = cache_embeddings(embed_model, embed_tokenizer, old_vocab_tokens_to_cache, device,
                                                              cache, batch_size=args.batch_size)
     
-    old_vocab_embeds_for_index = {token: cache[token] for token in old_vocab_tokens if token in cache}
+
+    old_vocab_embeds_for_index = {old_tokenizer.decode([oid]).lower():cache[old_tokenizer.decode([oid]).lower()] for oid in old_vocab.values() if old_tokenizer.decode([oid]).lower() in cache}
+
 
 
     if embed_dim_external is None:
@@ -255,6 +256,11 @@ def main(args):
         if eos_id is not None: config_updates["eos_token_id"] = eos_id
         if bos_id is not None: config_updates["bos_token_id"] = bos_id
 
+        if hasattr(old_tokenizer, "chat_template") and old_tokenizer.chat_template:
+             if hasattr(new_tokenizer,"chat_template"):
+                  new_tokenizer.chat_template = old_tokenizer.chat_template
+                  print("Copied chat template from old tokenizer.")
+
         if config_updates:
              print(f"Updating model config with: {config_updates}")
              model.config.update(config_updates)
@@ -268,10 +274,7 @@ def main(args):
                  print("Created new generation config.")
         else:
              print("Warning: Could not determine pad, eos, or bos tokens. Skipping config update.")
-        if hasattr(old_tokenizer, "chat_template") and old_tokenizer.chat_template:
-             if hasattr(new_tokenizer,"chat_template"):
-                  new_tokenizer.chat_template = old_tokenizer.chat_template
-                  print("Copied chat template from old tokenizer.")
+        
 
     except Exception as e:
         print(f"Config update failed: {e}")
@@ -334,13 +337,18 @@ if __name__ == "__main__":
         help="Batch size for embedding extraction, default: 16"
     )
     parser.add_argument(
-        "-k","--top_k", default=2, type=int,
-        help="Top K for global heuristic, default: 2"
+        "-k","--top_k", default=3, type=int,
+        help="Top K for global heuristic, default: 3"
     )
     parser.add_argument(
         "-w", "--weight", default=0.3, type=float,
         help="Weight for global heuristic ; default: 0.3; local heuristic is 1 - global heuristic", 
         choices=[Range(0.0 , 1.0)]
-    ) 
+    )
+    parser.add_argument(
+        "-limit", "--threshold", default=0.6, type=float
+        , help="Threshold for cosine similarity, default: 0.6"
+    )
+
     args = parser.parse_args()
     main(args)

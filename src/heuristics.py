@@ -11,11 +11,23 @@ from transformers import AutoTokenizer
 import torch.nn.functional as F
 import faiss
 from typing import Optional,Tuple
+from functools import lru_cache
+
+@lru_cache(maxsize=None)
+def get_old_vocab_humanish(vocab: dict, old_tokenizer: AutoTokenizer) -> dict:
+    """
+    Creates a human-readable version of the old vocabulary.
+    This is used for debugging and logging purposes.
+    """
+    old_vocab_humanish = {old_tokenizer.decode([oid]).lower():oid for oid in vocab.values()} # noqa: F841
+    return old_vocab_humanish
+
 
 def calculate_global_embedding(
     query_token_str: str,
     full_token_embeds_cache: dict,
     faiss_index: faiss.Index,
+    old_tokenizer: AutoTokenizer,
     index_to_token: dict,
     old_vocab: dict,
     original_input_embeddings: torch.Tensor,
@@ -49,6 +61,9 @@ def calculate_global_embedding(
 
         
     """
+    global old_token_humanish
+
+    query_token_str = query_token_str.lower()
     if query_token_str not in full_token_embeds_cache:
         return None, None
 
@@ -73,7 +88,8 @@ def calculate_global_embedding(
             neighbor_token = index_to_token.get(idx)
             if neighbor_token is None: continue
 
-            neighbor_orig_id = old_vocab.get(neighbor_token)
+            old_vocab_humaish = get_old_vocab_humanish(old_vocab, old_tokenizer)
+            neighbor_orig_id = old_vocab_humaish.get(neighbor_token)
             if neighbor_orig_id is not None and (0 <= neighbor_orig_id < original_input_embeddings.shape[0]):
                  valid_neighbor_orig_ids.append(neighbor_orig_id)
                  valid_similarities.append(sim)
@@ -130,7 +146,8 @@ def calculate_local_embedding(
         full_token_embeds_cache: Cache mapping decoded new token strings to external embeddings.
         subtoken_embeds_cache: Cache mapping old subtoken strings to external embeddings.
         original_input_embeddings: The input embedding matrix of the original model.
-        original_output_embeddings: The output embedding matrix (if untied and exists), else None.        temperature: Temperature for softmax weighting.
+        original_output_embeddings: The output embedding matrix (if untied and exists), else None.        
+        temperature: Temperature for softmax weighting.
         data_type: Torch data type for calculations.
         device: Device for torch tensor operations.
 
@@ -139,7 +156,7 @@ def calculate_local_embedding(
         - embedding_input: Calculated embedding for the input layer (CPU tensor), or None.
         - embedding_output: Calculated embedding for the output layer (CPU tensor), or None if original_output_embeddings was None or calculation failed.
     """
-    full_token_decoded = new_tokenizer.decode([new_token_id])
+    full_token_decoded = new_tokenizer.decode([new_token_id]).lower()
 
     if full_token_decoded not in full_token_embeds_cache:
         return None, None
@@ -156,7 +173,7 @@ def calculate_local_embedding(
 
     for oid in old_ids:
         if 0 <= oid < original_input_embeddings.shape[0]: 
-            subtoken_str = old_tokenizer.decode([oid])
+            subtoken_str = old_tokenizer.decode([oid]).lower()
             if subtoken_str in subtoken_embeds_cache:
                 valid_subtoken_embeds_ext.append(torch.tensor(subtoken_embeds_cache[subtoken_str], dtype=data_type, device=device))
                 valid_subtoken_strs.append(subtoken_str)
