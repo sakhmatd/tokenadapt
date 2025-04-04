@@ -121,7 +121,6 @@ def main(args):
     unique_tokens = set(new_vocab.keys()) - set(shared_vocab)
     print(f"Shared tokens: {len(shared_vocab)}")
     print(f"Unique tokens to initialize: {len(unique_tokens)}")
-    old_vocab_tokens = list(old_vocab.keys()) # Need for FAISS index
 
     
     embed_model_name = args.embedding_model_path.split("/")[-1]
@@ -131,7 +130,7 @@ def main(args):
     cache = load_cache(cache_file)
 
     
-    full_tokens_to_cache = [new_tokenizer.decode([new_vocab[token_str]]).lower() for token_str in unique_tokens]
+    full_tokens_to_cache = [new_tokenizer.decode([new_vocab[token_str]]) for token_str in unique_tokens]
     cache = cache_embeddings(embed_model, embed_tokenizer, full_tokens_to_cache, device, 
                                                     cache, batch_size=args.batch_size)
     
@@ -143,21 +142,21 @@ def main(args):
     
     subtokens_to_cache = set()
     for token_str in tqdm(unique_tokens, desc="Gathering potential subtokens"):
-        full_token_decoded = new_tokenizer.decode([new_vocab[token_str]]).lower()
+        full_token_decoded = new_tokenizer.decode([new_vocab[token_str]])
         old_ids = old_tokenizer.encode(full_token_decoded, add_special_tokens=False)
-        subtokens_to_cache.update(old_tokenizer.decode([oid]).lower() for oid in old_ids)
+        subtokens_to_cache.update(old_tokenizer.decode([oid]) for oid in old_ids)
     cache = cache_embeddings(embed_model, embed_tokenizer, list(subtokens_to_cache), device, 
                                                             cache, batch_size=args.batch_size)
     
     subtoken_embeds_cache = {token: cache[token] for token in subtokens_to_cache if token in cache}
 
 
-    old_vocab_tokens_to_cache = [old_tokenizer.decode([oid]).lower() for oid in old_vocab.values() if old_tokenizer.decode([oid]).lower() not in cache]
+    old_vocab_tokens_to_cache = [old_tokenizer.decode([oid]) for oid in old_vocab.values() if old_tokenizer.decode([oid]) not in cache]
     cache = cache_embeddings(embed_model, embed_tokenizer, old_vocab_tokens_to_cache, device,
                                                              cache, batch_size=args.batch_size)
     
 
-    old_vocab_embeds_for_index = {token:cache[old_tokenizer.decode([oid]).lower()] for token,oid in old_vocab.items() if old_tokenizer.decode([oid]).lower() in cache}
+    old_vocab_embeds_for_index = {token:cache[old_tokenizer.decode([oid])] for token,oid in old_vocab.items() if old_tokenizer.decode([oid]) in cache}
 
 
 

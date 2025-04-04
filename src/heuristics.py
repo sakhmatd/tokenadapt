@@ -53,7 +53,7 @@ def calculate_global_embedding(
         
     """
 
-    query_token_str = query_token_str.lower()
+    query_token_str = query_token_str
     if query_token_str not in full_token_embeds_cache:
         return None, None
 
@@ -145,7 +145,7 @@ def calculate_local_embedding(
         - embedding_input: Calculated embedding for the input layer (CPU tensor), or None.
         - embedding_output: Calculated embedding for the output layer (CPU tensor), or None if original_output_embeddings was None or calculation failed.
     """
-    full_token_decoded = new_tokenizer.decode([new_token_id]).lower()
+    full_token_decoded = new_tokenizer.decode([new_token_id])
 
     if full_token_decoded not in full_token_embeds_cache:
         return None, None
@@ -162,7 +162,7 @@ def calculate_local_embedding(
 
     for oid in old_ids:
         if 0 <= oid < original_input_embeddings.shape[0]: 
-            subtoken_str = old_tokenizer.decode([oid]).lower()
+            subtoken_str = old_tokenizer.decode([oid])
             if subtoken_str in subtoken_embeds_cache:
                 valid_subtoken_embeds_ext.append(torch.tensor(subtoken_embeds_cache[subtoken_str], dtype=data_type, device=device))
                 valid_subtoken_strs.append(subtoken_str)
@@ -198,3 +198,4 @@ def calculate_local_embedding(
         local_embedding_output = None
 
     return local_embedding_input, local_embedding_output
+
