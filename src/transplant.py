@@ -157,7 +157,7 @@ def main(args):
                                                              cache, batch_size=args.batch_size)
     
 
-    old_vocab_embeds_for_index = {old_tokenizer.decode([oid]).lower():cache[old_tokenizer.decode([oid]).lower()] for oid in old_vocab.values() if old_tokenizer.decode([oid]).lower() in cache}
+    old_vocab_embeds_for_index = {token:cache[old_tokenizer.decode([oid]).lower()] for token,oid in old_vocab.items() if old_tokenizer.decode([oid]).lower() in cache}
 
 
 

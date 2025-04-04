@@ -11,16 +11,6 @@ from transformers import AutoTokenizer
 import torch.nn.functional as F
 import faiss
 from typing import Optional,Tuple
-from functools import lru_cache
-
-@lru_cache(maxsize=None)
-def get_old_vocab_humanish(vocab: dict, old_tokenizer: AutoTokenizer) -> dict:
-    """
-    Creates a human-readable version of the old vocabulary.
-    This is used for debugging and logging purposes.
-    """
-    old_vocab_humanish = {old_tokenizer.decode([oid]).lower():oid for oid in vocab.values()} # noqa: F841
-    return old_vocab_humanish
 
 
 def calculate_global_embedding(
@@ -45,6 +35,7 @@ def calculate_global_embedding(
         query_token_str: The string representation of the new token (decoded).
         full_token_embeds_cache: Cache mapping token strings to their external embeddings.
         faiss_index: Pre-built FAISS index of old vocabulary external embeddings.
+        old_tokenizer: The old tokenizer.
         index_to_token: Mapping from FAISS index ID to old vocabulary token string.
         old_vocab: Original vocabulary mapping (token -> ID).
         original_input_embeddings: The input embedding matrix of the original model.
@@ -61,7 +52,6 @@ def calculate_global_embedding(
 
         
     """
-    global old_token_humanish
 
     query_token_str = query_token_str.lower()
     if query_token_str not in full_token_embeds_cache:
@@ -88,8 +78,7 @@ def calculate_global_embedding(
             neighbor_token = index_to_token.get(idx)
             if neighbor_token is None: continue
 
-            old_vocab_humaish = get_old_vocab_humanish(old_vocab, old_tokenizer)
-            neighbor_orig_id = old_vocab_humaish.get(neighbor_token)
+            neighbor_orig_id = old_vocab.get(neighbor_token)
             if neighbor_orig_id is not None and (0 <= neighbor_orig_id < original_input_embeddings.shape[0]):
                  valid_neighbor_orig_ids.append(neighbor_orig_id)
                  valid_similarities.append(sim)
