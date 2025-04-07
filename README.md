@@ -56,9 +56,12 @@ python src/transplant.py \
 
 ### Optional Arguments & Heuristic Control
 
--   `--embedding_model_path` (default: `nomic-ai/nomic-embed-text-v1.5`): External model used to generate embeddings for heuristic calculations (both local and global).
--   `--temperature` (default: 0.1): Controls the sharpness of the softmax weighting in heuristics (0.01-1.0). Lower values yield more distinct weights, higher values produce flatter weights.
--   `--top_k` (default: 2): Number of nearest neighbors (K) to consider for the global K-NN heuristic.
+-   `--embedding_model_path` (default: `nomic-ai/nomic-embed-text-v2-moe`): External model used to generate embeddings for heuristic calculations (both local and global). Below are some recommended models
+     - `jinaai/jina-embeddings-v3`
+     - `BAAI/bge-m3`
+     - <Works with any, Just plug and play>
+-   `--temperature` (default: 0.3): Controls the sharpness of the softmax weighting in heuristics (0.01-1.0). Lower values yield more distinct weights, higher values produce flatter weights. (Experiments shows `0.18` , `0.24` or `0.45` ) works well too. 
+-   `--top_k` (default: 3): Number of nearest neighbors (K) to consider for the global K-NN heuristic.
 -   `--weight` (default: 0.3): Weight assigned to the global K-NN heuristic result (0.0-1.0). The local subword heuristic receives a weight of `(1 - weight)`. A weight of 0.0 disables K-NN, 1.0 disables the subword heuristic.
 -   `--batch_size` (default: 16): Batch size for extracting embeddings with the external model.
 -   `--multiple_of` (default: 128): Pad vocabulary size to a multiple of this value for potential throughput improvement.
@@ -71,7 +74,7 @@ python src/transplant.py \
 ```bash
 python src/transplant.py \
     --model_path "Qwen/Qwen2.5-3B-Instruct" \
-    --new_tokenizer_path "tinycompany/Adi-Bun-128K" \
+    --new_tokenizer_path "fhai50032/QTK-81K" \
     --new_model_name "tinycompany/Qwentify" \
     --hf_token "hf_..."
 ```
@@ -81,7 +84,7 @@ python src/transplant.py \
 ```bash
 python src/transplant.py \
     --model_path "Qwen/Qwen2.5-3B-Instruct" \
-    --new_tokenizer_path "tinycompany/Adi-Bun-128K" \
+    --new_tokenizer_path "fhai50032/QTK-81K" \
     --new_model_name "tinycompany/Qwentify" \
     --hf_token "hf_..." \
     --embedding_model_path "BAAI/bge-m3" \
@@ -104,3 +107,10 @@ Copyright © 2025 IsNoobGrammer and aloobun
 ### Acknowledgements
 
 We would like to thank [Tensoic](https://github.com/tensoic/) and [Google](https://github.com/AI-Hypercomputer) for providing compute resources for this project.
+
+
+### Notes
+
+- Planning to add threshold for global heuristics
+- Current exp. shows Global Heuristics provide alot improvements
+- But for some samples where its not found in global vocab ; it diverts local
