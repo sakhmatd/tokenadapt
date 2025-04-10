@@ -94,7 +94,7 @@ python src/transplant.py \
     --weight 0.3 \
     --batch_size 16 \
     --multiple_of 128 \
-    --dtype "bf16"
+    --dtype "bf16" \
     --threshold 0.6
 ```
 
