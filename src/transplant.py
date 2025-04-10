@@ -222,7 +222,8 @@ def main(args):
         "faiss_index": faiss_index,
         "index_to_token": index_to_token,
         "k": args.top_k,
-        "global_weight": args.weight
+        "global_weight": args.weight,
+        "threshold": args.threshold,
     }
 
     print(f"Proceeding with transplantation (Is Tied :-> {tied}). global weight: {args.weight:.2f}, K: {args.top_k}")

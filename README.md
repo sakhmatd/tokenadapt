@@ -66,6 +66,7 @@ python src/transplant.py \
 -   `--batch_size` (default: 16): Batch size for extracting embeddings with the external model.
 -   `--multiple_of` (default: 128): Pad vocabulary size to a multiple of this value for potential throughput improvement.
 -   `--dtype` (default: "fp32"): Data type for model loading and processing (`bf16`, `fp16`, `fp32`). Affects memory usage and computation speed.
+-   `--threshold` (default: 0.6): Threshold for the similarity score between the original and new tokens. If the score is below the threshold, the global heuristic for that id will not be applied.
 
 ## Example Usage
 
@@ -94,6 +95,7 @@ python src/transplant.py \
     --batch_size 16 \
     --multiple_of 128 \
     --dtype "bf16"
+    --threshold 0.6
 ```
 
 ## License
@@ -109,8 +111,4 @@ Copyright © 2025 IsNoobGrammer and aloobun
 We would like to thank [Tensoic](https://github.com/tensoic/) and [Google](https://github.com/AI-Hypercomputer) for providing compute resources for this project.
 
 
-### Notes
 
-- Planning to add threshold for global heuristics
-- Current exp. shows Global Heuristics provide alot improvements
-- But for some samples where its not found in global vocab ; it diverts local

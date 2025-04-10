@@ -24,6 +24,7 @@ def calculate_global_embedding(
     original_output_embeddings: Optional[torch.Tensor],
     k: int,
     temperature: float,
+    threshold: float,
     data_type: torch.dtype,
     device: str 
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
@@ -42,6 +43,7 @@ def calculate_global_embedding(
         original_output_embeddings: The output embedding matrix (if untied and exists), else None.
         k: Number of neighbors to find.
         temperature: Temperature for softmax weighting of similarities.
+        threshold: Threshold for similarity filtering.
         data_type: Torch data type for calculations.
         device: Device for torch tensor operations.
 
@@ -88,8 +90,18 @@ def calculate_global_embedding(
 
 
         similarities_tensor = torch.tensor(valid_similarities, dtype=data_type, device=device)
-        weights = F.softmax(similarities_tensor / temperature, dim=0)
-        weights_unsqueezed = weights.unsqueeze(1) 
+        threshold_mask = similarities_tensor >= threshold
+        weights_input = similarities_tensor / temperature
+        weights = F.softmax(weights_input, dim=0)
+        masked_weights = weights * threshold_mask.float()
+        weights_sum = masked_weights.sum(dim=0, keepdim=True)
+
+        if weights_sum == 0 : # Faster than adding eps and dividing 
+            return None, None
+        else:
+            renormalized_weights = masked_weights / (weights_sum)
+             
+        weights_unsqueezed = renormalized_weights.unsqueeze(1)
 
         
         neighbor_input_embeds = original_input_embeddings[valid_neighbor_orig_ids].to(device=device, dtype=data_type)

@@ -17,7 +17,7 @@ def transplant_tied_embeddings(
     full_token_embeds_cache: dict, subtoken_embeds_cache: dict, old_vocab: dict,
     new_vocab: dict, old_tokenizer: AutoTokenizer, data_type: torch.dtype,
     temperature: float, pad_to_multiple_of: int,
-    faiss_index: Optional[faiss.Index], index_to_token: Optional[dict], k: int, global_weight: float
+    faiss_index: Optional[faiss.Index], index_to_token: Optional[dict], k: int, global_weight: float, threshold: float,
     ) -> None:
     """
     Transplants embeddings for a model with tied input/output embeddings.
@@ -92,7 +92,7 @@ def transplant_tied_embeddings(
                     full_token_decoded, full_token_embeds_cache, faiss_index, old_tokenizer,
                     index_to_token, old_vocab,
                     original_input_embeddings, original_output_embeddings, 
-                    k, calc_temperature, data_type, calc_device
+                    k, calc_temperature,threshold, data_type, calc_device
                 )
                 if e_global_in is not None: global_success += 1
 
