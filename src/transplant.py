@@ -346,8 +346,8 @@ if __name__ == "__main__":
         choices=[Range(0.0 , 1.0)]
     )
     parser.add_argument(
-        "-limit", "--threshold", default=0.6, type=float
-        , help="Threshold for cosine similarity, default: 0.6"
+        "-limit", "--threshold", default=0.0, type=float
+        , help="Threshold for cosine similarity, default: 0.0"
     )
 
     args = parser.parse_args()
