@@ -3,6 +3,12 @@
 
 TokenAdapt is a Tokenizer Transplantation Tool that allows users to seamlessly transplant tokenizers between language models while preserving semantic meaning. This tool is designed for users who want to adapt models for specific tasks or datasets without losing the integrity of the original embeddings, using intelligent 0-shot initialization heuristics.
 
+### Global-Heuristic
+![Global-Heuristic](./assets/Global-Heuristic.png)
+
+### Local-Heuristic
+![Local-Heuristic](./assets/Local-Heuristic.png)
+
 ## Installation
 
 To get started, clone the repository and install the required dependencies:
@@ -94,8 +100,7 @@ python src/transplant.py \
     --weight 0.3 \
     --batch_size 16 \
     --multiple_of 128 \
-    --dtype "bf16" \
-    --threshold 0.01
+    --dtype "bf16"
 ```
 
 ## License
