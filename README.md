@@ -107,7 +107,7 @@ python src/transplant.py \
 
 This project is licensed under the Apache 2.0 License.
 
-A detailed paper on the method will be available soon. You can find a summary on arXiv [here](https://arxiv.org/abs/XXXX.XXXX).
+A detailed paper on the method will be available soon. You can find a summary on arXiv [here](https://arxiv.org/abs/2505.09738).
 
 Copyright © 2025 IsNoobGrammer and aloobun
 
